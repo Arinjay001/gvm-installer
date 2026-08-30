@@ -37,16 +37,21 @@ echo -e "${CYAN}[+] Installing Nginx, Node.js & dependencies...${NC}"
 apt-get update -y > /dev/null 2>&1
 apt-get install -y nginx git curl unzip > /dev/null 2>&1
 
-# 3. Clone Repository (ASLI LINK YAHAN HAI)
+# 3. Token & Clone (PRIVATE REPO FIX)
 INSTALL_DIR="/opt/gvm-panel"
-REPO_URL="https://github.com/Arinjay001/gvm-panel.git"
 
 if [ -d "$INSTALL_DIR" ]; then
     echo -e "${YELLOW}[!] Purana folder detect hua, usko hata rahe hain...${NC}"
     rm -rf "$INSTALL_DIR"
 fi
 
-echo -e "${CYAN}[+] Downloading GVM Panel files...${NC}"
+echo -e "${YELLOW}Aapki GVM-panel repo private hai, isliye GitHub Token ki zaroorat hai.${NC}"
+read -p "Apna GitHub Token (ghp_...) yahan paste kijiye aur Enter dabaiye: " GIT_TOKEN
+
+REPO_URL="https://${GIT_TOKEN}@github.com/Arinjay001/GVM-panel.git"
+
+echo -e "${CYAN}[+] Downloading Private GVM Panel files...${NC}"
+# git clone ab bina password pooche turant download kar lega
 git clone "$REPO_URL" "$INSTALL_DIR" --quiet
 cd "$INSTALL_DIR"
 
