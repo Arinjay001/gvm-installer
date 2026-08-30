@@ -37,9 +37,9 @@ echo -e "${CYAN}[+] Installing Nginx, Node.js & dependencies...${NC}"
 apt-get update -y > /dev/null 2>&1
 apt-get install -y nginx git curl unzip > /dev/null 2>&1
 
-# 3. Clone Repository (YAHAN APNA GITHUB LINK DAALIYE)
+# 3. Clone Repository (ASLI LINK YAHAN HAI)
 INSTALL_DIR="/opt/gvm-panel"
-REPO_URL="https://github.com/aapka-username/gvm-panel.git"
+REPO_URL="https://github.com/Arinjay001/gvm-panel.git"
 
 if [ -d "$INSTALL_DIR" ]; then
     echo -e "${YELLOW}[!] Purana folder detect hua, usko hata rahe hain...${NC}"
@@ -54,10 +54,6 @@ cd "$INSTALL_DIR"
 echo -e "${CYAN}[+] Setting up Environment & Database...${NC}"
 mkdir -p server
 echo 'JWT_SECRET="gvm_super_secret_key_2026"' > server/.env
-
-# (Yahan aap apni npm install aur prisma generate commands daal sakte hain)
-# npm install
-# npx prisma generate
 
 # 5. Fix Docker TCP (Port 2375)
 echo -e "${CYAN}[+] Configuring Docker TCP for Node Management...${NC}"
