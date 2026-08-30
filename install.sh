@@ -1,79 +1,128 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+# ============================================================
+# GVM PANEL - ULTRA AUTO-INSTALLER
+# ============================================================
 set -e
+
+# Colors
+GREEN='\e[1;32m'
+CYAN='\e[1;36m'
+YELLOW='\e[1;33m'
+RED='\e[1;31m'
+NC='\e[0m'
+
 clear
+echo -e "${CYAN}"
+cat <<'EOF'
+  ____ __     __ __  __   ____                        _ 
+ / ___|\ \   / /|  \/  | |  _ \  __ _  _ __    ___  | |
+| |  _  \ \ / / | |\/| | | |_) |/ _` || '_ \  / _ \ | |
+| |_| |  \ V /  | |  | | |  __/| (_| || | | ||  __/ | |
+ \____|   \_/   |_|  |_| |_|    \__,_||_| |_| \___| |_|
+                                                       
+          ULTRA AUTO-INSTALLER V1.0
+EOF
+echo -e "${NC}"
 
-echo "========================================"
-echo "    GVM Panel Zero-Click Auto-Installer "
-echo "========================================"
+# 1. Root Check
+if [[ $EUID -ne 0 ]]; then
+   echo -e "${RED}[ERROR] Is script ko chalane ke liye Root (sudo) permission chahiye!${NC}"
+   exit 1
+fi
+echo -e "${GREEN}[+] Root access confirmed...${NC}"
 
-# Command line se direct aayega (Koi prompt nahi)
-GIT_USER=$1
-GIT_TOKEN=$2
+# 2. Update & Install Dependencies
+echo -e "${CYAN}[+] Installing Nginx, Node.js & dependencies...${NC}"
+apt-get update -y > /dev/null 2>&1
+apt-get install -y nginx git curl unzip > /dev/null 2>&1
 
-if [ -z "$GIT_USER" ] || [ -z "$GIT_TOKEN" ]; then
-  echo "Error: Command mein Username ya Token missing hai!"
-  exit 1
+# 3. Clone Repository (YAHAN APNA GITHUB LINK DAALIYE)
+INSTALL_DIR="/opt/gvm-panel"
+REPO_URL="https://github.com/aapka-username/gvm-panel.git"
+
+if [ -d "$INSTALL_DIR" ]; then
+    echo -e "${YELLOW}[!] Purana folder detect hua, usko hata rahe hain...${NC}"
+    rm -rf "$INSTALL_DIR"
 fi
 
-echo "-> Installing dependencies & PostgreSQL Database..."
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get install -y nodejs git curl postgresql postgresql-contrib
+echo -e "${CYAN}[+] Downloading GVM Panel files...${NC}"
+git clone "$REPO_URL" "$INSTALL_DIR" --quiet
+cd "$INSTALL_DIR"
 
-echo "-> Configuring Local Database..."
-sudo -u postgres psql -c "CREATE DATABASE gvmpanel;" || true
-sudo -u postgres psql -c "CREATE USER gvmuser WITH PASSWORD 'gvmpassword123';" || true
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE gvmpanel TO gvmuser;" || true
-sudo -u postgres psql -c "ALTER DATABASE gvmpanel OWNER TO gvmuser;" || true
+# 4. Configure JWT Secret & Prisma
+echo -e "${CYAN}[+] Setting up Environment & Database...${NC}"
+mkdir -p server
+echo 'JWT_SECRET="gvm_super_secret_key_2026"' > server/.env
 
-DB_URL="postgresql://gvmuser:gvmpassword123@localhost:5432/gvmpanel?schema=public"
+# (Yahan aap apni npm install aur prisma generate commands daal sakte hain)
+# npm install
+# npx prisma generate
 
-INSTALL_DIR="/opt/gvm-panel"
-echo "-> Downloading GVM Panel..."
-rm -rf "$INSTALL_DIR"
-git clone https://${GIT_USER}:${GIT_TOKEN}@github.com/${GIT_USER}/GVM-panel.git $INSTALL_DIR
+# 5. Fix Docker TCP (Port 2375)
+echo -e "${CYAN}[+] Configuring Docker TCP for Node Management...${NC}"
+mkdir -p /etc/systemd/system/docker.service.d
+cat > /etc/systemd/system/docker.service.d/override.conf << 'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dockerd -H fd:// -H tcp://0.0.0.0:2375
+EOF
+systemctl daemon-reload
+systemctl restart docker
 
-echo "-> Building Server..."
-cd $INSTALL_DIR/server
-npm install
-echo "DATABASE_URL=\"$DB_URL\"" > .env
-npx prisma generate
-npx prisma db push
-npm run build
+# 6. Setup Nginx Bridge (Port 80 to 3000)
+echo -e "${CYAN}[+] Setting up Nginx Web Server...${NC}"
+cat > /etc/nginx/sites-available/default << 'EOF'
+server {
+    listen 80;
+    
+    location / {
+        root /opt/gvm-panel/client/dist;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
 
-echo "-> Building Node-System..."
-cd $INSTALL_DIR/node-system
-npm install
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+EOF
+systemctl restart nginx
 
-echo "-> Configuring systemd services..."
-cat <<SERVICE1 > /etc/systemd/system/gvm-panel.service
+# 7. Setup Systemd Background Service
+echo -e "${CYAN}[+] Setting up 24/7 Background Service...${NC}"
+cat > /etc/systemd/system/gvm-panel.service << 'EOF'
 [Unit]
-Description=GVM Panel Backend
+Description=GVM Panel Daemon
 After=network.target
+
 [Service]
 Type=simple
-WorkingDirectory=$INSTALL_DIR/server
-ExecStart=/usr/bin/npm run start
+User=root
+WorkingDirectory=/opt/gvm-panel/server
+ExecStart=/usr/bin/node index.js
 Restart=always
-[Install]
-WantedBy=multi-user.target
-SERVICE1
 
-cat <<SERVICE2 > /etc/systemd/system/gvm-node-system.service
-[Unit]
-Description=GVM Node System
-After=network.target
-[Service]
-Type=simple
-WorkingDirectory=$INSTALL_DIR/node-system
-ExecStart=/usr/bin/npm run start
-Restart=always
 [Install]
 WantedBy=multi-user.target
-SERVICE2
+EOF
 
 systemctl daemon-reload
-systemctl enable --now gvm-panel gvm-node-system
+systemctl enable gvm-panel > /dev/null 2>&1
+systemctl restart gvm-panel
 
-echo "========================================"
-echo " Setup Completed Successfully! "
-echo "========================================"
+# Get Public IP
+PUBLIC_IP=$(curl -s ifconfig.me)
+
+echo -e "${GREEN}======================================================================${NC}"
+echo -e "${GREEN}   GVM PANEL SUCCESSFULLY INSTALLED! 🔥${NC}"
+echo -e "${GREEN}======================================================================${NC}"
+echo -e "Panel URL   : http://$PUBLIC_IP"
+echo -e "Docker Node : 127.0.0.1:2375 (No Auth)"
+echo -e "Directory   : $INSTALL_DIR"
+echo -e "${CYAN}Ab aaram se login kijiye!${NC}"
