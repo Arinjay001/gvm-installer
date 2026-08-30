@@ -1,97 +1,83 @@
 #!/bin/bash
 set -e
 
+# Screen Clear
+clear
+
 echo "========================================"
 echo "      GVM Panel Automated Installer     "
 echo "========================================"
 
-INSTALL_DIR="/opt/gvm-panel"
-
-# 1. Ask for Credentials & Database info
-echo "Kyunki code private hai, hume GitHub credentials chahiye:"
+# 1. Credentials Input
 read -p "Enter GitHub Username (e.g., Arinjay001): " GIT_USER
-read -s -p "Enter GitHub Personal Access Token (PAT): " GIT_TOKEN
+read -s -p "Enter GitHub PAT: " GIT_TOKEN
 echo ""
-echo "Database connection setup:"
-read -p "Enter Database URL (e.g., postgresql://user:pass@localhost:5432/db): " DB_URL
 
-# 2. Install System Dependencies
-echo "-> Installing system dependencies (Node.js, Git, curl)..."
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-apt-get install -y nodejs git curl
+# 2. Update aur Install Dependencies (Node 20 LTS + PostgreSQL)
+echo "-> Installing dependencies & PostgreSQL Database..."
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt-get install -y nodejs git curl postgresql postgresql-contrib
 
-# 3. Clone the Private Repository
-echo "-> Cloning private GVM Panel repository..."
-if [ -d "$INSTALL_DIR" ]; then
-    rm -rf "$INSTALL_DIR"
-fi
+# 3. Database Auto-Configuration
+echo "-> Configuring Local Database..."
+sudo -u postgres psql -c "CREATE DATABASE gvmpanel;" || true
+sudo -u postgres psql -c "CREATE USER gvmuser WITH PASSWORD 'gvmpassword123';" || true
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE gvmpanel TO gvmuser;" || true
+sudo -u postgres psql -c "ALTER DATABASE gvmpanel OWNER TO gvmuser;" || true
+
+DB_URL="postgresql://gvmuser:gvmpassword123@localhost:5432/gvmpanel?schema=public"
+
+# 4. Clone Private Repo
+INSTALL_DIR="/opt/gvm-panel"
+echo "-> Downloading GVM Panel..."
+rm -rf "$INSTALL_DIR"
 git clone https://${GIT_USER}:${GIT_TOKEN}@github.com/${GIT_USER}/GVM-panel.git $INSTALL_DIR
 
-# 4. Setup the Server & Database
-echo "-> Building the backend server and syncing Database..."
+# 5. Build Server & Setup DB Schema
+echo "-> Building Server..."
 cd $INSTALL_DIR/server
 npm install
-
-# .env file create kar rahe hain
 echo "DATABASE_URL=\"$DB_URL\"" > .env
-
 npx prisma generate
-npx prisma db push  # Ye database mein tables banayega
+npx prisma db push
 npm run build
 
-# 5. Setup the Node-System Daemon
-echo "-> Setting up the Node-System daemon..."
+# 6. Build Node-System
+echo "-> Building Node-System..."
 cd $INSTALL_DIR/node-system
 npm install
 
-# 6. Create Systemd Services
-echo "-> Configuring systemctl services..."
-
-# Service 1: Main Server
-cat <<EOF > /etc/systemd/system/gvm-panel.service
+# 7. Setup Background Services
+echo "-> Configuring systemd services..."
+cat <<SERVICE1 > /etc/systemd/system/gvm-panel.service
 [Unit]
-Description=GVM Panel Backend Server
-After=network.target docker.service
-
+Description=GVM Panel Backend
+After=network.target
 [Service]
 Type=simple
-User=root
 WorkingDirectory=$INSTALL_DIR/server
 ExecStart=/usr/bin/npm run start
 Restart=always
-Environment=NODE_ENV=production
-
 [Install]
 WantedBy=multi-user.target
-EOF
+SERVICE1
 
-# Service 2: Node-System
-cat <<EOF > /etc/systemd/system/gvm-node-system.service
+cat <<SERVICE2 > /etc/systemd/system/gvm-node-system.service
 [Unit]
-Description=GVM Node System Daemon
+Description=GVM Node System
 After=network.target
-
 [Service]
 Type=simple
-User=root
 WorkingDirectory=$INSTALL_DIR/node-system
-ExecStart=/usr/bin/npm run start  # Agar start command kuch aur hai toh isse change karein
+ExecStart=/usr/bin/npm run start
 Restart=always
-
 [Install]
 WantedBy=multi-user.target
-EOF
+SERVICE2
 
-# 7. Enable and Start Services
-echo "-> Starting Services via systemctl..."
 systemctl daemon-reload
-systemctl enable gvm-panel
-systemctl enable gvm-node-system
-systemctl restart gvm-panel
-systemctl restart gvm-node-system
+systemctl enable --now gvm-panel gvm-node-system
 
 echo "========================================"
-echo " Installation Complete! "
-echo " Backend Status: systemctl status gvm-panel"
-echo " Node-System Status: systemctl status gvm-node-system"
+echo " Setup Completed Successfully! "
 echo "========================================"
