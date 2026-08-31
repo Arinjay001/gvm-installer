@@ -56,16 +56,16 @@ line() {
     echo -e "${MAGENTA}============================================================${NC}"
 }
 info() {
-    echo -e "${CYAN}[INFO]${NC} $*"
+    echo -e "${CYAN}[INFO]${NC}$*"
 }
 ok() {
-    echo -e "${GREEN}[OK]${NC} $*"
+    echo -e "${GREEN}[OK]${NC}$*"
 }
 warn() {
-    echo -e "${YELLOW}[WARNING]${NC} $*"
+    echo -e "${YELLOW}[WARNING]${NC}$*"
 }
 error() {
-    echo -e "${RED}[ERROR]${NC} $*"
+    echo -e "${RED}[ERROR]${NC}$*"
 }
 die() {
     error "$*"
@@ -100,10 +100,10 @@ fi
 ok "Root access detected."
 
 # ============================================================
-# LICENSE KEY PROMPT
+# LICENSE KEY PROMPT (FIXED FOR CURL | BASH)
 # ============================================================
 echo -e "${YELLOW}"
-read -p "Please enter your GVM License Key: " LICENSE_KEY
+read -p "Please enter your GVM License Key: " LICENSE_KEY </dev/tty
 echo -e "${NC}"
 
 if [ -z "$LICENSE_KEY" ]; then
@@ -116,7 +116,7 @@ line
 # ============================================================
 info "Checking and installing required utilities (Python, Git, etc.)..."
 
-if command -v apt-get >/dev/null 2>&1; then
+if command -v apt-get>/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq -y
     apt-get install -y curl wget file ca-certificates procps sudo git python3 python3-pip python3-venv jq >/dev/null 2>&1
@@ -160,7 +160,7 @@ info "Installing dependencies from requirements.txt..."
 ok "Python dependencies installed."
 
 # Setup env variables
-cat <<EOF > .env
+cat <<EOF> .env
 LICENSE_SERVER_URL="$DEFAULT_LICENSE_SERVER"
 LICENSE_PRODUCT="$PRODUCT_NAME"
 EOF
@@ -233,30 +233,7 @@ line
 # ============================================================
 info "Creating systemd service..."
 
-cat > "${SERVICE_FILE}" <<EOF
-[Unit]
-Description=GVM V1 Panel Service
-After=network-online.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=${INSTALL_DIR}
-Environment="PATH=${INSTALL_DIR}/.venv/bin"
-ExecStart=${INSTALL_DIR}/.venv/bin/python api.py
-Restart=always
-RestartSec=5
-
-StandardOutput=append:${LOG_FILE}
-StandardError=append:${LOG_FILE}
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-chmod 644 "${SERVICE_FILE}"
-systemctl daemon-reload
-systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1
+cat > "${SERVICE_FILE}" <<EOF "${SERVICE_FILE}" "${SERVICE_NAME}" 644 After="network-online.target" Description="GVM" EOF Environment="PATH=${INSTALL_DIR}/.venv/bin" ExecStart="${INSTALL_DIR}/.venv/bin/python" Panel Restart="always" RestartSec="5" Service StandardError="append:${LOG_FILE}" StandardOutput="append:${LOG_FILE}" Type="simple" User="root" V1 WantedBy="multi-user.target" WorkingDirectory="${INSTALL_DIR}" [Install] [Service] [Unit] api.py chmod daemon-reload enable systemctl>/dev/null 2>&1
 
 info "Starting GVM service..."
 systemctl restart "${SERVICE_NAME}"
@@ -265,59 +242,4 @@ sleep 3
 if systemctl is-active --quiet "${SERVICE_NAME}"; then
     ok "GVM service is ONLINE."
 else
-    error "GVM service failed to start. Check logs: journalctl -u ${SERVICE_NAME} -n 20"
-    exit 1
-fi
-line
-
-# ============================================================
-# PUBLIC IP & STATUS
-# ============================================================
-PUBLIC_IP="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
-
-PANEL_STATUS_DISPLAY="${GREEN}ONLINE${NC}"
-HKVM_PROCESS="${GREEN}RUNNING${NC}"
-
-# ============================================================
-# FINAL SCREEN
-# ============================================================
-clear
-echo -e "${GREEN}"
-cat <<EOF
-╔════════════════════════════════════════════════════════════╗
-║                    GVM PANEL V1                            ║
-║                  INSTALLATION COMPLETE                     ║
-╚════════════════════════════════════════════════════════════╝
-
-  STATUS              : ${PANEL_STATUS_DISPLAY}
-
-  PANEL URL           : http://${PUBLIC_IP}:${PANEL_PORT}
-
-  INSTALL DIRECTORY   : ${INSTALL_DIR}
-
-  SERVICE             : ${SERVICE_NAME}
-
-  PROCESS             : ${HKVM_PROCESS}
-
-  LOG FILE            : ${LOG_FILE}
-
-──────────────────────────────────────────────────────────────
-
-  SERVICE COMMANDS
-
-  Start:    systemctl start ${SERVICE_NAME}
-  Stop:     systemctl stop ${SERVICE_NAME}
-  Restart:  systemctl restart ${SERVICE_NAME}
-  Status:   systemctl status ${SERVICE_NAME}
-
-──────────────────────────────────────────────────────────────
-
-  LIVE LOGS
-
-    journalctl -u ${SERVICE_NAME} -f
-
-══════════════════════════════════════════════════════════════
-EOF
-echo -e "${NC}"
-ok "GVM Panel installation finished. Enjoy!"
-echo
+    error "GVM service failed to start.
