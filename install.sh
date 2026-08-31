@@ -44,37 +44,18 @@ GITHUB_TOKEN="${TOKEN_PART1}${TOKEN_PART2}"
 
 REPO_URL="https://${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO_NAME}.git"
 
-# Aapka Live License Server
 DEFAULT_LICENSE_SERVER="https://arinjay01.pythonanywhere.com"
 PRODUCT_NAME="GVM-PANEL"
 
 # ============================================================
-# HELPERS
+# LOGO & HELPERS
 # ============================================================
-
-line() {
-    echo -e "${MAGENTA}============================================================${NC}"
-}
-info() {
-    echo -e "${CYAN}[INFO]${NC}$*"
-}
-ok() {
-    echo -e "${GREEN}[OK]${NC}$*"
-}
-warn() {
-    echo -e "${YELLOW}[WARNING]${NC}$*"
-}
-error() {
-    echo -e "${RED}[ERROR]${NC}$*"
-}
-die() {
-    error "$*"
-    exit 1
-}
-
-# ============================================================
-# LOGO
-# ============================================================
+line() { echo -e "${MAGENTA}============================================================${NC}"; }
+info() { echo -e "${CYAN}[INFO]${NC} $*"; }
+ok() { echo -e "${GREEN}[OK]${NC} $*"; }
+warn() { echo -e "${YELLOW}[WARNING]${NC} $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*"; }
+die() { error "$*"; exit 1; }
 
 clear
 echo -e "${CYAN}"
@@ -91,86 +72,58 @@ EOF
 echo -e "${NC}"
 line
 
-# ============================================================
-# ROOT CHECK
-# ============================================================
-if [[ "${EUID}" -ne 0 ]]; then
-    die "Please run this installer as root."
-fi
+if [[ "${EUID}" -ne 0 ]]; then die "Please run this installer as root."; fi
 ok "Root access detected."
-
-# ============================================================
-# LICENSE KEY PROMPT (FIXED FOR CURL | BASH)
-# ============================================================
-echo -e "${YELLOW}"
-read -p "Please enter your GVM License Key: " LICENSE_KEY </dev/tty
-echo -e "${NC}"
-
-if [ -z "$LICENSE_KEY" ]; then
-    die "License key cannot be empty. Installation aborted."
-fi
 line
 
 # ============================================================
-# DEPENDENCIES
+# LICENSE KEY PROMPT
 # ============================================================
-info "Checking and installing required utilities (Python, Git, etc.)..."
+echo -e "${YELLOW}"
+read -p "Please enter your GVM License Key: " LICENSE_KEY
+echo -e "${NC}"
 
-if command -v apt-get>/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq -y
-    apt-get install -y curl wget file ca-certificates procps sudo git python3 python3-pip python3-venv jq >/dev/null 2>&1
-elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y curl wget file ca-certificates procps-ng sudo git python3 python3-pip jq >/dev/null 2>&1
-elif command -v yum >/dev/null 2>&1; then
-    yum install -y curl wget file ca-certificates procps sudo git python3 python3-pip jq >/dev/null 2>&1
-else
-    warn "Unsupported Linux package manager. Please ensure Python3, Git, and Pip are installed."
-fi
+if [ -z "$LICENSE_KEY" ]; then die "License key cannot be empty. Installation aborted."; fi
+line
+
+# ============================================================
+# DEPENDENCIES & CLONE
+# ============================================================
+info "Checking and installing required utilities..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq -y >/dev/null 2>&1 || true
+apt-get install -y curl wget file ca-certificates procps sudo git python3 python3-pip python3-venv jq >/dev/null 2>&1 || true
 ok "Required utilities installed."
 line
 
-# ============================================================
-# INSTALL DIRECTORY & REPO CLONE
-# ============================================================
 info "Preparing ${INSTALL_DIR}..."
-if [ -d "$INSTALL_DIR" ]; then
-    warn "Directory already exists. Performing a fresh install..."
-    rm -rf "$INSTALL_DIR"
-fi
+rm -rf "$INSTALL_DIR"
 
 info "Downloading GVM Panel Files securely..."
 if git clone -q "$REPO_URL" "$INSTALL_DIR"; then
     ok "Repository cloned successfully."
 else
-    die "Failed to clone repository. Please check your GitHub Token configuration."
+    die "Failed to clone repository. Check GitHub Token."
 fi
 cd "${INSTALL_DIR}"
 line
 
 # ============================================================
-# PYTHON VIRTUAL ENVIRONMENT
+# PYTHON & LICENSE ACTIVATION
 # ============================================================
 info "Setting up Python Virtual Environment..."
 python3 -m venv .venv
 source .venv/bin/activate
-
-info "Installing dependencies from requirements.txt..."
 .venv/bin/pip install -r requirements.txt -q
 ok "Python dependencies installed."
 
-# Setup env variables
-cat <<EOF> .env
+cat <<EOF > .env
 LICENSE_SERVER_URL="$DEFAULT_LICENSE_SERVER"
 LICENSE_PRODUCT="$PRODUCT_NAME"
 EOF
 line
 
-# ============================================================
-# LICENSE VERIFICATION (PRE-ACTIVATION)
-# ============================================================
 info "Verifying and Activating License with Remote Server..."
-
 cat << 'EOF' > test_license.py
 import sys, os, uuid, json, requests
 from dotenv import load_dotenv
@@ -207,7 +160,6 @@ rm test_license.py
 if [[ "$ACTIVATION_RESULT" == *"FAILED"* ]]; then
     error "License Activation Failed!"
     echo -e "${RED}$ACTIVATION_RESULT${NC}"
-    info "Cleaning up failed installation..."
     cd / && rm -rf "$INSTALL_DIR"
     die "Installation Aborted."
 fi
@@ -215,31 +167,44 @@ ok "License Activated Successfully!"
 line
 
 # ============================================================
-# FIREWALL
-# ============================================================
-info "Configuring firewall for TCP ${PANEL_PORT}..."
-if command -v ufw >/dev/null 2>&1; then
-    ufw allow "${PANEL_PORT}/tcp" >/dev/null 2>&1 || true
-    ok "UFW rule configured."
-elif command -v firewall-cmd >/dev/null 2>&1; then
-    firewall-cmd --permanent --add-port="${PANEL_PORT}/tcp" >/dev/null 2>&1 || true
-    firewall-cmd --reload >/dev/null 2>&1 || true
-    ok "firewalld rule configured."
-fi
-line
-
-# ============================================================
-# SYSTEMD SERVICE
+# SYSTEMD SERVICE & FINISH
 # ============================================================
 info "Creating systemd service..."
+cat > "${SERVICE_FILE}" <<EOF
+[Unit]
+Description=GVM V1 Panel Service
+After=network-online.target
 
-cat > "${SERVICE_FILE}" <<EOF "${SERVICE_FILE}" "${SERVICE_NAME}" 644 After="network-online.target" Description="GVM" EOF Environment="PATH=${INSTALL_DIR}/.venv/bin" ExecStart="${INSTALL_DIR}/.venv/bin/python" Panel Restart="always" RestartSec="5" Service StandardError="append:${LOG_FILE}" StandardOutput="append:${LOG_FILE}" Type="simple" User="root" V1 WantedBy="multi-user.target" WorkingDirectory="${INSTALL_DIR}" [Install] [Service] [Unit] api.py chmod daemon-reload enable systemctl>/dev/null 2>&1
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${INSTALL_DIR}
+Environment="PATH=${INSTALL_DIR}/.venv/bin"
+ExecStart=${INSTALL_DIR}/.venv/bin/python api.py
+Restart=always
+RestartSec=5
+StandardOutput=append:${LOG_FILE}
+StandardError=append:${LOG_FILE}
 
-info "Starting GVM service..."
+[Install]
+WantedBy=multi-user.target
+EOF
+
+chmod 644 "${SERVICE_FILE}"
+systemctl daemon-reload
+systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1
 systemctl restart "${SERVICE_NAME}"
-sleep 3
+sleep 2
 
-if systemctl is-active --quiet "${SERVICE_NAME}"; then
-    ok "GVM service is ONLINE."
-else
-    error "GVM service failed to start.
+clear
+PUBLIC_IP="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
+echo -e "${GREEN}"
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║                    GVM PANEL V1                            ║"
+echo "║                  INSTALLATION COMPLETE                     ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo "  PANEL URL           : http://${PUBLIC_IP}:${PANEL_PORT}"
+echo "  SERVICE COMMANDS    : systemctl status ${SERVICE_NAME}"
+echo -e "${NC}"
+ok "GVM Panel installation finished. Enjoy!"
+echo
