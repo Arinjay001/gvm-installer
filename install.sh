@@ -187,7 +187,7 @@ try:
     resp = requests.post(f"{server_url}/v1/activate", json={
         "license_key": key,
         "product": product,
-        "device_id": device_id
+        "installation_id": device_id
     }, timeout=10)
     
     data = resp.json()
