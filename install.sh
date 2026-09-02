@@ -43,10 +43,11 @@ if [[ "${EUID}" -ne 0 ]]; then die "Please run this installer as root."; fi
 ok "Root access detected."
 
 line
-info "Installing utilities..."
+info "Installing utilities and LXC/LXD dependencies..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq -y >/dev/null 2>&1 || true
-apt-get install -y curl wget git python3 python3-pip python3-venv jq >/dev/null 2>&1 || true
+apt-get install -y curl wget git python3 python3-pip python3-venv jq lxd lxc >/dev/null 2>&1 || true
+ok "System utilities and LXC installed."
 
 info "Installing ttyd for Advanced Web Console..."
 wget -qO /usr/local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64
@@ -57,6 +58,7 @@ info "Cloning Repository from GitHub..."
 rm -rf "$INSTALL_DIR"
 git clone -q "$REPO_URL" "$INSTALL_DIR"
 cd "$INSTALL_DIR"
+ok "Repository cloned."
 
 info "Setting up Python Environment..."
 python3 -m venv .venv
@@ -65,9 +67,6 @@ source .venv/bin/activate
 .venv/bin/pip install flask requests paramiko -q
 ok "Python environment ready."
 
-# ============================================================
-# MAIN PANEL SERVICE
-# ============================================================
 info "Configuring Main Panel Service..."
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
@@ -94,12 +93,13 @@ chmod 644 "/etc/systemd/system/${SERVICE_NAME}.service"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1
 systemctl restart "${SERVICE_NAME}"
+ok "Systemd service configured and started."
 
 clear
 PUBLIC_IP="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
 echo -e "${GREEN}"
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║               GVM PANEL INSTALLATION COMPLETE              ║"
+echo "║                GVM PANEL INSTALLATION COMPLETE             ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo "  PANEL URL : http://${PUBLIC_IP}:${PANEL_PORT}"
 echo -e "${NC}"
