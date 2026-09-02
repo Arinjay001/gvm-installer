@@ -67,6 +67,56 @@ source .venv/bin/activate
 .venv/bin/pip install flask requests paramiko -q
 ok "Python environment ready."
 
+# ============================================================
+# APPLYING FRONTEND FIXES AUTOMATICALLY
+# ============================================================
+info "Applying frontend patches (Fixing Create VPS reload issue)..."
+cat << 'EOF' >> "${INSTALL_DIR}/templates/admin/vps_create.html"
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const form = document.querySelector('form');
+    if (form) {
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault(); 
+            
+            const vpsNameInput = document.getElementById('vpsName') || form.querySelector('input[name="name"]');
+            const passwordInput = document.getElementById('vpsPassword') || form.querySelector('input[name="password"]');
+            const vpsName = vpsNameInput ? vpsNameInput.value : '';
+            const password = passwordInput ? passwordInput.value : '';
+            
+            const submitBtn = form.querySelector('button[type="submit"]') || form.querySelector('button');
+            if(submitBtn) { submitBtn.disabled = true; submitBtn.innerText = "Creating VPS..."; }
+            
+            try {
+                const response = await fetch('/api/create-vps', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: vpsName, password: password })
+                });
+                
+                const result = await response.json();
+                if(result.success) {
+                    alert("VPS Created Successfully!");
+                    window.location.href = "/admin/vps"; // Redirect to VPS list
+                } else {
+                    alert("Error: " + result.error);
+                    if(submitBtn) { submitBtn.disabled = false; submitBtn.innerText = "Create VPS"; }
+                }
+            } catch(err) {
+                alert("Backend API Error! Check logs.");
+                if(submitBtn) { submitBtn.disabled = false; submitBtn.innerText = "Create VPS"; }
+            }
+        });
+    }
+});
+</script>
+EOF
+ok "Frontend patched successfully."
+
+# ============================================================
+# MAIN PANEL SERVICE
+# ============================================================
 info "Configuring Main Panel Service..."
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
