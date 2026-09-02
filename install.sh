@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================================
-# GVM PANEL V1 INSTALLER (CLEAN VERSION WITH TTYD)
+# GVM PANEL INSTALLER
 # ============================================================
 
 set -Eeuo pipefail
@@ -20,7 +20,7 @@ LOG_FILE="/var/log/gvm-panel.log"
 SERVICE_NAME="gvm-panel"
 PANEL_PORT="5000"
 
-# GITHUB DETAILS (Aapki Private Repo ke liye)
+# GITHUB DETAILS
 GITHUB_USERNAME="Arinjay001"
 GITHUB_REPO_NAME="gvm-panel"
 TOKEN_PART1="github_pat_11BUUGSIQ0v5daqk6"
@@ -36,7 +36,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; }
 die() { error "$*"; exit 1; }
 
 clear
-echo -e "${CYAN}GVM PANEL V1 - AUTO INSTALLER${NC}"
+echo -e "${CYAN}GVM PANEL - AUTO INSTALLER${NC}"
 line
 
 if [[ "${EUID}" -ne 0 ]]; then die "Please run this installer as root."; fi
@@ -71,7 +71,7 @@ ok "Python environment ready."
 info "Configuring Main Panel Service..."
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=GVM V1 Panel Service
+Description=GVM Panel Service
 After=network-online.target
 
 [Service]
@@ -79,7 +79,6 @@ Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
 Environment="PATH=${INSTALL_DIR}/.venv/bin"
-# Ab seedha gvm.py chalega, bina kisi proxy ke
 ExecStart=${INSTALL_DIR}/.venv/bin/python gvm.py
 Restart=always
 RestartSec=5
@@ -100,7 +99,7 @@ clear
 PUBLIC_IP="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
 echo -e "${GREEN}"
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║             GVM PANEL V1 INSTALLATION COMPLETE             ║"
+echo "║               GVM PANEL INSTALLATION COMPLETE              ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo "  PANEL URL : http://${PUBLIC_IP}:${PANEL_PORT}"
 echo -e "${NC}"
