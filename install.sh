@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================================
-# GVM PANEL INSTALLER
+# GVM PANEL INSTALLER (ULTIMATE EDITION)
 # ============================================================
 
 set -Eeuo pipefail
@@ -68,51 +68,141 @@ source .venv/bin/activate
 ok "Python environment ready."
 
 # ============================================================
-# APPLYING FRONTEND FIXES AUTOMATICALLY
+# APPLYING FRONTEND FIXES (CREATE VPS UI + PREMIUM CONSOLE)
 # ============================================================
-info "Applying frontend patches (Fixing Create VPS reload issue)..."
+info "Applying frontend patches (Premium UI & Console)..."
+
+# 1. VPS Creation Reload Fix
 cat << 'EOF' >> "${INSTALL_DIR}/templates/admin/vps_create.html"
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     const form = document.querySelector('form');
+    
+    const style = document.createElement('style');
+    style.innerHTML = `@keyframes spin { 100% { transform: rotate(360deg); } }`;
+    document.head.appendChild(style);
+
     if (form) {
         form.addEventListener('submit', async function(e) {
             e.preventDefault(); 
             
             const vpsNameInput = document.getElementById('vpsName') || form.querySelector('input[name="name"]');
             const passwordInput = document.getElementById('vpsPassword') || form.querySelector('input[name="password"]');
-            const vpsName = vpsNameInput ? vpsNameInput.value : '';
-            const password = passwordInput ? passwordInput.value : '';
             
             const submitBtn = form.querySelector('button[type="submit"]') || form.querySelector('button');
-            if(submitBtn) { submitBtn.disabled = true; submitBtn.innerText = "Creating VPS..."; }
+            
+            if(submitBtn) { 
+                submitBtn.disabled = true; 
+                submitBtn.style.cursor = "not-allowed";
+                submitBtn.style.opacity = "0.8";
+                submitBtn.innerHTML = `
+                    <svg style="animation: spin 1s linear infinite; display: inline-block; width: 20px; height: 20px; margin-right: 8px; vertical-align: middle;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" style="opacity: 0.25;"></circle>
+                        <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" style="opacity: 0.75;"></path>
+                    </svg> 
+                    <span style="vertical-align: middle;">Installing your VPS...</span>
+                `; 
+            }
             
             try {
                 const response = await fetch('/api/create-vps', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: vpsName, password: password })
+                    body: JSON.stringify({ 
+                        name: vpsNameInput ? vpsNameInput.value : '', 
+                        password: passwordInput ? passwordInput.value : '' 
+                    })
                 });
                 
                 const result = await response.json();
                 if(result.success) {
-                    alert("VPS Created Successfully!");
-                    window.location.href = "/admin/vps"; // Redirect to VPS list
+                    if(submitBtn) {
+                        submitBtn.innerHTML = `✅ VPS Installed Successfully!`;
+                        submitBtn.style.backgroundColor = "#10B981";
+                        submitBtn.style.color = "#ffffff";
+                    }
+                    setTimeout(() => { window.location.href = "/admin/vps"; }, 1500);
                 } else {
                     alert("Error: " + result.error);
-                    if(submitBtn) { submitBtn.disabled = false; submitBtn.innerText = "Create VPS"; }
+                    if(submitBtn) { 
+                        submitBtn.disabled = false; 
+                        submitBtn.style.cursor = "pointer";
+                        submitBtn.style.opacity = "1";
+                        submitBtn.innerHTML = "Create VPS"; 
+                    }
                 }
             } catch(err) {
                 alert("Backend API Error! Check logs.");
-                if(submitBtn) { submitBtn.disabled = false; submitBtn.innerText = "Create VPS"; }
+                if(submitBtn) { 
+                    submitBtn.disabled = false;
+                    submitBtn.style.cursor = "pointer";
+                    submitBtn.style.opacity = "1";
+                    submitBtn.innerHTML = "Create VPS"; 
+                }
             }
         });
     }
 });
 </script>
 EOF
-ok "Frontend patched successfully."
+
+# 2. Premium SSH Console Replacement
+cat > "${INSTALL_DIR}/templates/vps_console.html" << 'EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSH Terminal - {{ vps.name }}</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; background-color: #09090b; font-family: 'Inter', 'Segoe UI', sans-serif; color: #ffffff; overflow: hidden; }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; background-color: #111118; padding: 12px 24px; border-bottom: 1px solid #1f1f2e; height: 60px; box-sizing: border-box; }
+        .left-section { display: flex; align-items: center; gap: 16px; }
+        .title { font-size: 16px; font-weight: 600; letter-spacing: 0.5px; display: flex; align-items: center; gap: 10px; }
+        .title i { color: #6366f1; font-size: 18px; }
+        .status-badge { background-color: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 1px; display: flex; align-items: center; gap: 6px; }
+        .status-badge .dot { width: 6px; height: 6px; background-color: #10b981; border-radius: 50%; box-shadow: 0 0 6px #10b981; }
+        .right-section { display: flex; gap: 12px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s ease; text-decoration: none; }
+        .btn-danger { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .btn-danger:hover { background-color: #ef4444; color: #ffffff; }
+        .btn-secondary { background-color: transparent; color: #a1a1aa; border: 1px solid #27272a; }
+        .btn-secondary:hover { background-color: #27272a; color: #ffffff; }
+        .terminal-container { height: calc(100vh - 60px); width: 100%; background-color: #000000; }
+        iframe { width: 100%; height: 100%; border: none; }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <div class="left-section">
+            <div class="title"><i class="fas fa-chevron-right">_</i> SSH Terminal</div>
+            <div class="status-badge" id="statusBadge"><div class="dot"></div> CONNECTED</div>
+        </div>
+        <div class="right-section">
+            <button class="btn btn-danger" onclick="disconnectTerminal()"><i class="fas fa-power-off"></i> Disconnect</button>
+            <a href="/admin/vps" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+        </div>
+    </div>
+    <div class="terminal-container">
+        <iframe id="terminalFrame" src="http://{{ request.host.split(':')[0] }}:7681" allowfullscreen></iframe>
+    </div>
+    <script>
+        function disconnectTerminal() {
+            document.getElementById('terminalFrame').src = "about:blank";
+            const badge = document.getElementById('statusBadge');
+            badge.innerHTML = `<div class="dot" style="background-color: #ef4444; box-shadow: 0 0 6px #ef4444;"></div> DISCONNECTED`;
+            badge.style.color = "#ef4444";
+            badge.style.borderColor = "rgba(239, 68, 68, 0.3)";
+            badge.style.backgroundColor = "rgba(239, 68, 68, 0.1)";
+        }
+    </script>
+</body>
+</html>
+EOF
+
+ok "Frontend patched successfully with Premium UI."
 
 # ============================================================
 # MAIN PANEL SERVICE
@@ -127,7 +217,7 @@ After=network-online.target
 Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
-Environment="PATH=${INSTALL_DIR}/.venv/bin"
+Environment="PATH=${INSTALL_DIR}/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
 ExecStart=${INSTALL_DIR}/.venv/bin/python gvm.py
 Restart=always
 RestartSec=5
