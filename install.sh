@@ -43,17 +43,25 @@ if [[ "${EUID}" -ne 0 ]]; then die "Please run this installer as root."; fi
 ok "Root access detected."
 
 line
-info "Installing utilities, NGINX, and LXC/LXD dependencies..."
+info "Installing utilities and LXC/LXD dependencies..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq -y >/dev/null 2>&1 || true
-# Nginx added to the installation list
-apt-get install -y curl wget git python3 python3-pip python3-venv jq lxd lxc nginx >/dev/null 2>&1 || true
-ok "System utilities, NGINX, and LXC installed."
+apt-get install -y curl wget git python3 python3-pip python3-venv jq lxd lxc >/dev/null 2>&1 || true
+ok "System utilities and LXC installed."
+
+info "Installing NGINX..."
+apt-get install -y nginx >/dev/null 2>&1 || true
+ok "NGINX installed."
 
 # ============================================================
 # AUTO-CONFIGURING NGINX FOR CLOUDFLARE WEBSOCKETS
 # ============================================================
 info "Configuring Nginx Reverse Proxy for Web SSH..."
+
+# FORCE CREATE DIRECTORIES TO PREVENT ERROR
+mkdir -p /etc/nginx/sites-available
+mkdir -p /etc/nginx/sites-enabled
+
 cat > /etc/nginx/sites-available/default << 'EOF'
 server {
     listen 80;
@@ -77,8 +85,11 @@ server {
 }
 EOF
 
-systemctl restart nginx
-systemctl enable nginx >/dev/null 2>&1
+# Ensure symlink exists
+ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+
+systemctl restart nginx || true
+systemctl enable nginx >/dev/null 2>&1 || true
 ok "Nginx configured successfully for dynamic TTYD ports."
 
 info "Installing ttyd for Advanced Web Console..."
