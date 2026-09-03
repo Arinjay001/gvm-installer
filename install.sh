@@ -51,18 +51,18 @@ ok "System utilities and LXC installed."
 
 info "Installing NGINX..."
 apt-get install -y nginx >/dev/null 2>&1 || true
-
-# SAFETY CHECK: Wait until nginx package fully configures its structure
 dpkg --configure -a >/dev/null 2>&1 || true
-mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-ok "NGINX installed and directories verified."
+ok "NGINX installed."
 
 # ============================================================
-# AUTO-CONFIGURING NGINX FOR CLOUDFLARE WEBSOCKETS
+# AUTO-CONFIGURING NGINX FOR CLOUDFLARE WEBSOCKETS (SAFE /TMP METHOD)
 # ============================================================
 info "Configuring Nginx Reverse Proxy for Web SSH..."
 
-cat > /etc/nginx/sites-available/default << 'EOF'
+mkdir -p /etc/nginx/sites-available
+mkdir -p /etc/nginx/sites-enabled
+
+cat > /tmp/nginx_gvm << 'EOF'
 server {
     listen 80;
     server_name _;
@@ -85,7 +85,8 @@ server {
 }
 EOF
 
-# Ensure symlink exists safely
+mv /tmp/nginx_gvm /etc/nginx/sites-available/default
+
 rm -f /etc/nginx/sites-enabled/default
 ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
 
@@ -190,7 +191,7 @@ document.addEventListener("DOMContentLoaded", function() {
 </script>
 EOF
 
-# 2. Premium SSH Console Replacement (Iframe Link Updated for Nginx Proxy)
+# 2. Premium SSH Console Replacement
 cat > "${INSTALL_DIR}/templates/vps_console.html" << 'EOF'
 <!DOCTYPE html>
 <html lang="en">
@@ -229,7 +230,6 @@ cat > "${INSTALL_DIR}/templates/vps_console.html" << 'EOF'
         </div>
     </div>
     <div class="terminal-container">
-        <!-- NGINX PROXY LINK: backend gvm.py needs to pass console_port -->
         <iframe id="terminalFrame" src="/terminal/{{ console_port }}/" allowfullscreen></iframe>
     </div>
     <script>
