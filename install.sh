@@ -51,16 +51,16 @@ ok "System utilities and LXC installed."
 
 info "Installing NGINX..."
 apt-get install -y nginx >/dev/null 2>&1 || true
-ok "NGINX installed."
+
+# SAFETY CHECK: Wait until nginx package fully configures its structure
+dpkg --configure -a >/dev/null 2>&1 || true
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+ok "NGINX installed and directories verified."
 
 # ============================================================
 # AUTO-CONFIGURING NGINX FOR CLOUDFLARE WEBSOCKETS
 # ============================================================
 info "Configuring Nginx Reverse Proxy for Web SSH..."
-
-# FORCE CREATE DIRECTORIES TO PREVENT ERROR
-mkdir -p /etc/nginx/sites-available
-mkdir -p /etc/nginx/sites-enabled
 
 cat > /etc/nginx/sites-available/default << 'EOF'
 server {
@@ -85,8 +85,9 @@ server {
 }
 EOF
 
-# Ensure symlink exists
-ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+# Ensure symlink exists safely
+rm -f /etc/nginx/sites-enabled/default
+ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
 
 systemctl restart nginx || true
 systemctl enable nginx >/dev/null 2>&1 || true
