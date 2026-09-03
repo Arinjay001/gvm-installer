@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================================
-# GVM PANEL INSTALLER (ULTIMATE EDITION)
+# GVM PANEL INSTALLER
 # ============================================================
 
 set -Eeuo pipefail
@@ -43,11 +43,43 @@ if [[ "${EUID}" -ne 0 ]]; then die "Please run this installer as root."; fi
 ok "Root access detected."
 
 line
-info "Installing utilities and LXC/LXD dependencies..."
+info "Installing utilities, NGINX, and LXC/LXD dependencies..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq -y >/dev/null 2>&1 || true
-apt-get install -y curl wget git python3 python3-pip python3-venv jq lxd lxc >/dev/null 2>&1 || true
-ok "System utilities and LXC installed."
+# Nginx added to the installation list
+apt-get install -y curl wget git python3 python3-pip python3-venv jq lxd lxc nginx >/dev/null 2>&1 || true
+ok "System utilities, NGINX, and LXC installed."
+
+# ============================================================
+# AUTO-CONFIGURING NGINX FOR CLOUDFLARE WEBSOCKETS
+# ============================================================
+info "Configuring Nginx Reverse Proxy for Web SSH..."
+cat > /etc/nginx/sites-available/default << 'EOF'
+server {
+    listen 80;
+    server_name _;
+
+    # Main GVM Panel Proxy
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Dynamic TTYD Console Proxy
+    location ~ ^/terminal/(?<vps_port>[0-9]+)/ {
+        proxy_pass http://127.0.0.1:$vps_port;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+EOF
+
+systemctl restart nginx
+systemctl enable nginx >/dev/null 2>&1
+ok "Nginx configured successfully for dynamic TTYD ports."
 
 info "Installing ttyd for Advanced Web Console..."
 wget -qO /usr/local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64
@@ -74,7 +106,6 @@ info "Applying frontend patches (Premium UI & Console)..."
 
 # 1. VPS Creation Reload Fix
 cat << 'EOF' >> "${INSTALL_DIR}/templates/admin/vps_create.html"
-
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     const form = document.querySelector('form');
@@ -147,7 +178,7 @@ document.addEventListener("DOMContentLoaded", function() {
 </script>
 EOF
 
-# 2. Premium SSH Console Replacement
+# 2. Premium SSH Console Replacement (Iframe Link Updated for Nginx Proxy)
 cat > "${INSTALL_DIR}/templates/vps_console.html" << 'EOF'
 <!DOCTYPE html>
 <html lang="en">
@@ -186,7 +217,8 @@ cat > "${INSTALL_DIR}/templates/vps_console.html" << 'EOF'
         </div>
     </div>
     <div class="terminal-container">
-        <iframe id="terminalFrame" src="http://{{ request.host.split(':')[0] }}:7681" allowfullscreen></iframe>
+        <!-- NGINX PROXY LINK: backend gvm.py needs to pass console_port -->
+        <iframe id="terminalFrame" src="/terminal/{{ console_port }}/" allowfullscreen></iframe>
     </div>
     <script>
         function disconnectTerminal() {
@@ -202,7 +234,7 @@ cat > "${INSTALL_DIR}/templates/vps_console.html" << 'EOF'
 </html>
 EOF
 
-ok "Frontend patched successfully with Premium UI."
+ok "Frontend patched successfully with Premium UI and Nginx proxy settings."
 
 # ============================================================
 # MAIN PANEL SERVICE
@@ -241,7 +273,8 @@ echo -e "${GREEN}"
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║                GVM PANEL INSTALLATION COMPLETE             ║"
 echo "╚════════════════════════════════════════════════════════════╝"
-echo "  PANEL URL : http://${PUBLIC_IP}:${PANEL_PORT}"
+echo "  DIRECT IP URL  : http://${PUBLIC_IP}"
+echo "  (Nginx is now routing port 80 traffic automatically)"
 echo -e "${NC}"
 echo -e "${YELLOW}Panel open karne ke baad apni original License Key daaliye!${NC}"
 ok "Installation finished! Web UI is ready."
