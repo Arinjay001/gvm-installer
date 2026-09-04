@@ -36,7 +36,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; }
 die() { error "$*"; exit 1; }
 
 clear
-echo -e "${CYAN}GVM PANEL - AUTO INSTALLER${NC}"
+echo -e "${CYAN}GVM PANEL INSTALLER${NC}"
 line
 
 if [[ "${EUID}" -ne 0 ]]; then die "Please run this installer as root."; fi
@@ -55,7 +55,7 @@ dpkg --configure -a >/dev/null 2>&1 || true
 ok "NGINX installed."
 
 # ============================================================
-# AUTO-CONFIGURING NGINX FOR CLOUDFLARE WEBSOCKETS (SAFE /TMP METHOD)
+# AUTO-CONFIGURING NGINX FOR CLOUDFLARE WEBSOCKETS
 # ============================================================
 info "Configuring Nginx Reverse Proxy for Web SSH..."
 
@@ -94,6 +94,10 @@ systemctl restart nginx || true
 systemctl enable nginx >/dev/null 2>&1 || true
 ok "Nginx configured successfully for dynamic TTYD ports."
 
+info "Cleaning up old ttyd processes and binaries..."
+pkill -f ttyd || true
+rm -f /usr/local/bin/ttyd
+
 info "Installing ttyd for Advanced Web Console..."
 wget -qO /usr/local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64
 chmod +x /usr/local/bin/ttyd
@@ -104,6 +108,65 @@ rm -rf "$INSTALL_DIR"
 git clone -q "$REPO_URL" "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 ok "Repository cloned."
+
+# ============================================================
+# AUTO-INJECTING TTYD CODE INTO GVM.PY BACKEND
+# ============================================================
+info "Injecting dynamic port routing into gvm.py..."
+
+GVM_PY_PATH="${INSTALL_DIR}/gvm.py"
+
+if [ -f "$GVM_PY_PATH" ]; then
+    cat << 'PYEOF' >> "$GVM_PY_PATH"
+
+# ==========================================
+# AUTO-INJECTED TTYD CONSOLE MANAGER
+# ==========================================
+import subprocess
+import socket
+import atexit
+
+active_consoles = {}
+
+def get_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+
+def start_vps_console(vps_name):
+    if vps_name in active_consoles and active_consoles[vps_name]['process'].poll() is None:
+        return active_consoles[vps_name]['port']
+
+    port = get_free_port()
+    base_path = f"/terminal/{port}"
+
+    cmd = [
+        "ttyd", "-W", "-p", str(port), "-i", "127.0.0.1", 
+        "-b", base_path, 
+        "lxc", "exec", vps_name, "--", "/bin/bash"
+    ]
+    process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    active_consoles[vps_name] = {'process': process, 'port': port}
+    return port
+
+def cleanup_consoles():
+    for vps, data in active_consoles.items():
+        try:
+            data['process'].terminate()
+        except:
+            pass
+atexit.register(cleanup_consoles)
+
+@app.route('/vps/<vps_name>/console')
+def vps_console(vps_name):
+    dynamic_port = start_vps_console(vps_name)
+    return render_template('vps_console.html', vps={'name': vps_name}, console_port=dynamic_port)
+PYEOF
+    ok "gvm.py patched automatically with console manager."
+else
+    error "gvm.py not found in repository root!"
+fi
 
 info "Setting up Python Environment..."
 python3 -m venv .venv
