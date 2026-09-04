@@ -102,12 +102,15 @@ git clone -q "$REPO_URL" "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 ok "Repository cloned."
 
-info "Injecting dynamic port routing into gvm.py..."
+info "Injecting robust dynamic port routing & ID lookup into gvm.py..."
 GVM_PY_PATH="${INSTALL_DIR}/gvm.py"
 
 if [ -f "$GVM_PY_PATH" ]; then
     cat << 'PYEOF' >> "$GVM_PY_PATH"
 
+# ==========================================
+# GVM CONSOLE MANAGER (ID & NAME SUPPORT)
+# ==========================================
 import subprocess
 import socket
 import atexit
@@ -144,12 +147,22 @@ def cleanup_consoles():
             pass
 atexit.register(cleanup_consoles)
 
-@app.route('/vps/<vps_name>/console')
-def vps_console(vps_name):
+@app.route('/vps/<path:vps_id_or_name>/console')
+def vps_console(vps_id_or_name):
+    vps_name = vps_id_or_name
+    try:
+        # Check if VPS model exists and supports lookup by ID or name
+        if 'VPS' in globals():
+            vps_obj = VPS.query.filter((VPS.id == vps_id_or_name) | (VPS.name == vps_id_or_name)).first()
+            if vps_obj and hasattr(vps_obj, 'name'):
+                vps_name = vps_obj.name
+    except Exception:
+        pass
+        
     dynamic_port = start_vps_console(vps_name)
     return render_template('vps_console.html', vps={'name': vps_name}, console_port=dynamic_port)
 PYEOF
-    ok "gvm.py patched successfully."
+    ok "gvm.py patched successfully with ID mapping."
 else
     error "gvm.py not found!"
 fi
